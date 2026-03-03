@@ -261,6 +261,81 @@
       text-transform: uppercase;
       color: #6b7280;
     }
+
+    /* ── List View ────────────────────────────────────────── */
+    .list-section {
+      padding: 0 24px 24px;
+      display: none;
+    }
+    .list-section.active { display: block; }
+    .list-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .list-controls label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+    }
+    .list-controls select {
+      padding: 4px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    .list-group-header {
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+      padding: 12px 0 6px;
+      border-bottom: 2px solid #e5e7eb;
+      margin-top: 16px;
+    }
+    .list-group-header:first-child { margin-top: 0; }
+    .list-group-header .group-count {
+      font-weight: 400;
+      color: #9ca3af;
+      font-size: 13px;
+    }
+    .list-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .list-table th,
+    .list-table td {
+      padding: 8px 14px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    .list-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+    .list-table tr { cursor: pointer; }
+    .list-table tr:hover td { background: #f9fafb; }
+    .stage-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+    .stage-dot.my_action { background: #2563eb; }
+    .stage-dot.in_progress { background: #8b5cf6; }
+    .stage-dot.waiting_on_client { background: #f59e0b; }
+    .stage-dot.follow_up_needed { background: #dc2626; }
   </style>
 </head>
 <body>
@@ -276,6 +351,7 @@
   <div class="header">
     <h1>Case Tracker</h1>
     <div class="header-actions">
+      <button class="btn btn-secondary btn-small" id="listToggle" onclick="toggleListView()">List View</button>
       <button class="btn btn-secondary btn-small" id="archiveToggle" onclick="toggleArchive()">View Archived</button>
       <button class="btn btn-primary btn-small" onclick="openNewCaseModal()">+ New Case</button>
       <button class="btn btn-secondary btn-small" onclick="signOut()">Sign Out</button>
@@ -284,6 +360,19 @@
 
   <!-- Board View -->
   <div class="board" id="board"></div>
+
+  <!-- List View -->
+  <div class="list-section" id="listSection">
+    <div class="list-controls">
+      <label for="groupBy">Group by:</label>
+      <select id="groupBy" onchange="renderListView()">
+        <option value="client">Client (A-Z)</option>
+        <option value="matter_type">Practice Area</option>
+        <option value="stage">Stage</option>
+      </select>
+    </div>
+    <div id="listContent"></div>
+  </div>
 
   <!-- Archive View -->
   <div class="archive-section" id="archiveSection">
@@ -352,6 +441,7 @@
   let currentUser = null;
   let editingCaseId = null;
   let showingArchive = false;
+  let showingList = false;
 
   // ── Auth ──────────────────────────────────────────────────
   async function signIn() {
@@ -671,14 +761,120 @@
     await loadCases();
   }
 
+  // ── List View ───────────────────────────────────────────────
+  function toggleListView() {
+    showingList = !showingList;
+    const board = document.getElementById('board');
+    const listSection = document.getElementById('listSection');
+    const listBtn = document.getElementById('listToggle');
+    const archiveSection = document.getElementById('archiveSection');
+    const archiveBtn = document.getElementById('archiveToggle');
+
+    if (showingList) {
+      // Switch to list, turn off archive if on
+      showingArchive = false;
+      archiveSection.classList.remove('active');
+      archiveBtn.textContent = 'View Archived';
+
+      board.style.display = 'none';
+      listSection.classList.add('active');
+      listBtn.textContent = 'Board View';
+      renderListView();
+    } else {
+      board.style.display = 'flex';
+      listSection.classList.remove('active');
+      listBtn.textContent = 'List View';
+    }
+  }
+
+  function renderListView() {
+    const groupBy = document.getElementById('groupBy').value;
+    const container = document.getElementById('listContent');
+    container.innerHTML = '';
+
+    if (cases.length === 0) {
+      container.innerHTML = '<p style="color:#9ca3af; padding:20px 0;">No active cases.</p>';
+      return;
+    }
+
+    // Build groups
+    const groups = {};
+    for (const c of cases) {
+      let key;
+      if (groupBy === 'client') {
+        key = c.client_name;
+      } else if (groupBy === 'matter_type') {
+        key = CONFIG.MATTER_TYPES.find(t => t.value === c.matter_type)?.label || c.matter_type;
+      } else {
+        key = CONFIG.STAGES.find(s => s.id === c.stage)?.label || c.stage;
+      }
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(c);
+    }
+
+    // Sort group keys
+    const sortedKeys = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    // Determine which columns to show (hide the groupBy column since it's the header)
+    for (const key of sortedKeys) {
+      const groupCases = groups[key];
+
+      const header = document.createElement('div');
+      header.className = 'list-group-header';
+      header.innerHTML = `${escapeHtml(key)} <span class="group-count">(${groupCases.length})</span>`;
+      container.appendChild(header);
+
+      const table = document.createElement('table');
+      table.className = 'list-table';
+
+      // Build header row based on groupBy — skip the column we're grouping on
+      let thHtml = '';
+      if (groupBy !== 'client') thHtml += '<th>Client</th>';
+      if (groupBy !== 'matter_type') thHtml += '<th>Type</th>';
+      if (groupBy !== 'stage') thHtml += '<th>Stage</th>';
+      thHtml += '<th>Days in Stage</th>';
+
+      table.innerHTML = `<thead><tr>${thHtml}</tr></thead>`;
+      const tbody = document.createElement('tbody');
+
+      for (const c of groupCases) {
+        const tr = document.createElement('tr');
+        tr.onclick = () => openEditModal(c.id);
+
+        const typeLabel = CONFIG.MATTER_TYPES.find(t => t.value === c.matter_type)?.label || c.matter_type;
+        const stageLabel = CONFIG.STAGES.find(s => s.id === c.stage)?.label || c.stage;
+        const days = Math.floor((Date.now() - new Date(c.stage_changed_at)) / (1000 * 60 * 60 * 24));
+
+        let tdHtml = '';
+        if (groupBy !== 'client') tdHtml += `<td>${escapeHtml(c.client_name)}</td>`;
+        if (groupBy !== 'matter_type') tdHtml += `<td>${escapeHtml(typeLabel)}</td>`;
+        if (groupBy !== 'stage') tdHtml += `<td><span class="stage-dot ${c.stage}"></span>${escapeHtml(stageLabel)}</td>`;
+        tdHtml += `<td>${days}</td>`;
+
+        tr.innerHTML = tdHtml;
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      container.appendChild(table);
+    }
+  }
+
   // ── Archive View ──────────────────────────────────────────
   async function toggleArchive() {
     showingArchive = !showingArchive;
     const section = document.getElementById('archiveSection');
     const board = document.getElementById('board');
     const btn = document.getElementById('archiveToggle');
+    const listSection = document.getElementById('listSection');
+    const listBtn = document.getElementById('listToggle');
 
     if (showingArchive) {
+      // Turn off list view if on
+      showingList = false;
+      listSection.classList.remove('active');
+      listBtn.textContent = 'List View';
+
       board.style.display = 'none';
       section.classList.add('active');
       btn.textContent = 'View Board';
