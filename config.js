@@ -6,7 +6,7 @@
 
 const CONFIG = {
   // Your Supabase project URL (looks like: https://abcdefghij.supabase.co)
-  SUPABASE_URL: 'https://supabase.com/dashboard/project/ltguwfyysvlggwelnfyt/',
+  SUPABASE_URL: 'https://ltguwfyysvlggwelnfyt.supabase.co',
 
   // Your Supabase anon/public key (a long string starting with "eyJ...")
   SUPABASE_ANON_KEY: 'sb_publishable_ULeS3FcZryzc1WgMF2JPXw_BfJ5sRg6',
