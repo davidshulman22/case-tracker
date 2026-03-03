@@ -107,6 +107,7 @@
 
     /* Column accent colors */
     .column[data-stage="my_action"] .column-header { border-left: 4px solid #2563eb; }
+    .column[data-stage="in_progress"] .column-header { border-left: 4px solid #8b5cf6; }
     .column[data-stage="waiting_on_client"] .column-header { border-left: 4px solid #f59e0b; }
     .column[data-stage="follow_up_needed"] .column-header { border-left: 4px solid #dc2626; }
 
@@ -407,12 +408,20 @@
   }
 
   async function autoMoveStale() {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - CONFIG.FOLLOW_UP_DAYS);
+    const waitingCutoff = new Date();
+    waitingCutoff.setDate(waitingCutoff.getDate() - CONFIG.FOLLOW_UP_DAYS);
+    const progressCutoff = new Date();
+    progressCutoff.setDate(progressCutoff.getDate() - CONFIG.IN_PROGRESS_DAYS);
     let movedCount = 0;
 
     for (const c of cases) {
-      if (c.stage === 'waiting_on_client' && new Date(c.stage_changed_at) < cutoff) {
+      let shouldMove = false;
+      if (c.stage === 'waiting_on_client' && new Date(c.stage_changed_at) < waitingCutoff) {
+        shouldMove = true;
+      } else if (c.stage === 'in_progress' && new Date(c.stage_changed_at) < progressCutoff) {
+        shouldMove = true;
+      }
+      if (shouldMove) {
         const { error } = await sb
           .from('cases')
           .update({ stage: 'follow_up_needed' })
@@ -482,10 +491,12 @@
         const typeLabel = CONFIG.MATTER_TYPES.find(t => t.value === c.matter_type)?.label || c.matter_type;
         let waitingHtml = '';
 
-        if (c.stage === 'waiting_on_client' || c.stage === 'follow_up_needed') {
+        if (c.stage === 'waiting_on_client' || c.stage === 'follow_up_needed' || c.stage === 'in_progress') {
           const days = Math.floor((Date.now() - new Date(c.stage_changed_at)) / (1000 * 60 * 60 * 24));
-          const overdue = days >= CONFIG.FOLLOW_UP_DAYS;
-          waitingHtml = `<div class="card-waiting-since ${overdue ? 'overdue' : ''}">Waiting ${days} day${days !== 1 ? 's' : ''}</div>`;
+          const threshold = c.stage === 'in_progress' ? CONFIG.IN_PROGRESS_DAYS : CONFIG.FOLLOW_UP_DAYS;
+          const overdue = days >= threshold;
+          const label = c.stage === 'in_progress' ? 'Sitting' : 'Waiting';
+          waitingHtml = `<div class="card-waiting-since ${overdue ? 'overdue' : ''}">${label} ${days} day${days !== 1 ? 's' : ''}</div>`;
         }
 
         card.innerHTML = `
@@ -721,7 +732,6 @@
     }
     showStatus('Case restored to My Action Needed', 'saved');
     await loadArchived();
-    cases = []; // Force reload when switching back
   }
 
   // ── Status Banner ─────────────────────────────────────────
