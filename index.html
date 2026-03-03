@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Case Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    .header {
+      background: #fff;
+      border-bottom: 1px solid #ddd;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 20px; font-weight: 600; }
+    .header-actions { display: flex; gap: 10px; align-items: center; }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-secondary:hover { background: #d1d5db; }
+    .btn-danger { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-small { padding: 4px 10px; font-size: 12px; }
+
+    /* ── Login Screen ─────────────────────────────────────── */
+    .login-screen {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .login-screen h1 { font-size: 28px; }
+
+    /* ── Board ─────────────────────────────────────────────── */
+    .board {
+      display: flex;
+      gap: 16px;
+      padding: 20px 24px;
+      overflow-x: auto;
+      min-height: calc(100vh - 60px);
+      align-items: flex-start;
+    }
+
+    /* ── Columns ──────────────────────────────────────────── */
+    .column {
+      background: #fff;
+      border-radius: 10px;
+      min-width: 300px;
+      flex: 1;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 100px);
+    }
+    .column-header {
+      padding: 14px 16px;
+      font-weight: 600;
+      font-size: 14px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .column-header .count {
+      background: #e5e7eb;
+      color: #6b7280;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+    }
+    .column-body {
+      padding: 8px;
+      flex: 1;
+      overflow-y: auto;
+      min-height: 80px;
+    }
+    .column-body.drag-over {
+      background: #eff6ff;
+      border: 2px dashed #2563eb;
+      border-radius: 0 0 10px 10px;
+    }
+
+    /* Column accent colors */
+    .column[data-stage="my_action"] .column-header { border-left: 4px solid #2563eb; }
+    .column[data-stage="waiting_on_client"] .column-header { border-left: 4px solid #f59e0b; }
+    .column[data-stage="follow_up_needed"] .column-header { border-left: 4px solid #dc2626; }
+
+    /* ── Cards ─────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      cursor: grab;
+      transition: box-shadow 0.15s;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card.dragging { opacity: 0.4; }
+    .card-client { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+    .card-type {
+      font-size: 11px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card-waiting-since {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+    .card-waiting-since.overdue { color: #dc2626; font-weight: 500; }
+
+    /* ── Modal / Detail View ──────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 100;
+      justify-content: center;
+      align-items: flex-start;
+      padding-top: 60px;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 540px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+    }
+    .modal-header {
+      padding: 20px 24px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .modal-header h2 { font-size: 18px; }
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #9ca3af;
+      line-height: 1;
+    }
+    .modal-body { padding: 16px 24px 24px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .form-group textarea { min-height: 100px; resize: vertical; }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+      margin-top: 16px;
+    }
+    .modal-actions-right { display: flex; gap: 8px; }
+    .meta-info {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 12px;
+    }
+
+    /* ── Status Banner ────────────────────────────────────── */
+    .status-banner {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity 0.3s;
+      z-index: 200;
+    }
+    .status-banner.show { opacity: 1; }
+    .status-banner.saved { background: #d1fae5; color: #065f46; }
+    .status-banner.failed { background: #fee2e2; color: #dc2626; }
+    .status-banner.info { background: #dbeafe; color: #1e40af; }
+
+    /* ── Archive View Toggle ──────────────────────────────── */
+    .archive-section {
+      padding: 0 24px 24px;
+      display: none;
+    }
+    .archive-section.active { display: block; }
+    .archive-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .archive-table th,
+    .archive-table td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    .archive-table th {
+      background: #f9fafb;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Login Screen ───────────────────────────────────────── -->
+<div id="loginScreen" class="login-screen">
+  <h1>Case Tracker</h1>
+  <button class="btn btn-primary" onclick="signIn()">Sign in with Google</button>
+</div>
+
+<!-- ── Main App (hidden until logged in) ──────────────────── -->
+<div id="app" style="display:none;">
+  <div class="header">
+    <h1>Case Tracker</h1>
+    <div class="header-actions">
+      <button class="btn btn-secondary btn-small" id="archiveToggle" onclick="toggleArchive()">View Archived</button>
+      <button class="btn btn-primary btn-small" onclick="openNewCaseModal()">+ New Case</button>
+      <button class="btn btn-secondary btn-small" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Board View -->
+  <div class="board" id="board"></div>
+
+  <!-- Archive View -->
+  <div class="archive-section" id="archiveSection">
+    <h2 style="margin-bottom:12px; font-size:18px;">Archived Cases</h2>
+    <table class="archive-table">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Type</th>
+          <th>Archived</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="archiveBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Detail / Edit Modal ────────────────────────────────── -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">New Case</h2>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="fieldClient">Client Name</label>
+        <input type="text" id="fieldClient" placeholder="e.g. Smith, John">
+      </div>
+      <div class="form-group">
+        <label for="fieldType">Matter Type</label>
+        <select id="fieldType"></select>
+      </div>
+      <div class="form-group">
+        <label for="fieldStage">Stage</label>
+        <select id="fieldStage"></select>
+      </div>
+      <div class="form-group">
+        <label for="fieldNotes">Notes</label>
+        <textarea id="fieldNotes" placeholder="Free-text notes about this case..."></textarea>
+      </div>
+      <div class="meta-info" id="metaInfo"></div>
+      <div class="modal-actions">
+        <div>
+          <button class="btn btn-danger btn-small" id="archiveBtn" onclick="archiveCase()" style="display:none;">Archive</button>
+        </div>
+        <div class="modal-actions-right">
+          <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+          <button class="btn btn-primary" id="saveBtn" onclick="saveCase()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Status Banner ──────────────────────────────────────── -->
+<div class="status-banner" id="statusBanner"></div>
+
+<script>
+  // ── Initialize Supabase ──────────────────────────────────
+  const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+
+  // ── App State ────────────────────────────────────────────
+  let cases = [];
+  let currentUser = null;
+  let editingCaseId = null;
+  let showingArchive = false;
+
+  // ── Auth ──────────────────────────────────────────────────
+  async function signIn() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + window.location.pathname }
+    });
+    if (error) showStatus('Sign-in failed: ' + error.message, 'failed');
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    window.location.reload();
+  }
+
+  async function checkAuth() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      currentUser = session.user;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      await loadCases();
+    }
+  }
+
+  // Listen for auth state changes (handles OAuth redirect)
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      currentUser = session.user;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadCases();
+    }
+  });
+
+  // ── Data Loading ──────────────────────────────────────────
+  async function loadCases() {
+    const { data, error } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('archived', false)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      showStatus('Failed to load cases: ' + error.message, 'failed');
+      return;
+    }
+    cases = data || [];
+
+    // Auto-move stale "waiting_on_client" cards to "follow_up_needed"
+    await autoMoveStale();
+
+    renderBoard();
+  }
+
+  async function autoMoveStale() {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - CONFIG.FOLLOW_UP_DAYS);
+    let movedCount = 0;
+
+    for (const c of cases) {
+      if (c.stage === 'waiting_on_client' && new Date(c.stage_changed_at) < cutoff) {
+        const { error } = await supabase
+          .from('cases')
+          .update({ stage: 'follow_up_needed' })
+          .eq('id', c.id);
+        if (!error) {
+          c.stage = 'follow_up_needed';
+          c.stage_changed_at = new Date().toISOString();
+          movedCount++;
+        }
+      }
+    }
+    if (movedCount > 0) {
+      showStatus(movedCount + ' case(s) moved to Follow Up Needed', 'info');
+    }
+  }
+
+  // ── Render Board ──────────────────────────────────────────
+  function renderBoard() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+
+    for (const stage of CONFIG.STAGES) {
+      const stageCases = cases.filter(c => c.stage === stage.id);
+      const col = document.createElement('div');
+      col.className = 'column';
+      col.dataset.stage = stage.id;
+
+      col.innerHTML = `
+        <div class="column-header">
+          <span>${stage.label}</span>
+          <span class="count">${stageCases.length}</span>
+        </div>
+        <div class="column-body" data-stage="${stage.id}"></div>
+      `;
+
+      const body = col.querySelector('.column-body');
+
+      // Drop zone events
+      body.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        body.classList.add('drag-over');
+      });
+      body.addEventListener('dragleave', () => {
+        body.classList.remove('drag-over');
+      });
+      body.addEventListener('drop', (e) => {
+        e.preventDefault();
+        body.classList.remove('drag-over');
+        const caseId = e.dataTransfer.getData('text/plain');
+        if (caseId) moveCase(caseId, stage.id);
+      });
+
+      // Render cards
+      for (const c of stageCases) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.draggable = true;
+        card.dataset.id = c.id;
+
+        card.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', c.id);
+          card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        card.addEventListener('click', () => openEditModal(c.id));
+
+        const typeLabel = CONFIG.MATTER_TYPES.find(t => t.value === c.matter_type)?.label || c.matter_type;
+        let waitingHtml = '';
+
+        if (c.stage === 'waiting_on_client' || c.stage === 'follow_up_needed') {
+          const days = Math.floor((Date.now() - new Date(c.stage_changed_at)) / (1000 * 60 * 60 * 24));
+          const overdue = days >= CONFIG.FOLLOW_UP_DAYS;
+          waitingHtml = `<div class="card-waiting-since ${overdue ? 'overdue' : ''}">Waiting ${days} day${days !== 1 ? 's' : ''}</div>`;
+        }
+
+        card.innerHTML = `
+          <div class="card-client">${escapeHtml(c.client_name)}</div>
+          <div class="card-type">${escapeHtml(typeLabel)}</div>
+          ${waitingHtml}
+        `;
+
+        body.appendChild(card);
+      }
+
+      board.appendChild(col);
+    }
+  }
+
+  // ── Move Case (drag-and-drop) ─────────────────────────────
+  async function moveCase(caseId, newStage) {
+    const c = cases.find(x => x.id === caseId);
+    if (!c || c.stage === newStage) return;
+
+    const oldStage = c.stage;
+    c.stage = newStage;
+    c.stage_changed_at = new Date().toISOString();
+    renderBoard();
+
+    const { error } = await supabase
+      .from('cases')
+      .update({ stage: newStage })
+      .eq('id', caseId);
+
+    if (error) {
+      c.stage = oldStage;
+      renderBoard();
+      showStatus('Move failed: ' + error.message, 'failed');
+    } else {
+      showStatus('Saved', 'saved');
+    }
+  }
+
+  // ── Modal: New Case ───────────────────────────────────────
+  function openNewCaseModal() {
+    editingCaseId = null;
+    document.getElementById('modalTitle').textContent = 'New Case';
+    document.getElementById('fieldClient').value = '';
+    document.getElementById('fieldNotes').value = '';
+    document.getElementById('metaInfo').textContent = '';
+    document.getElementById('archiveBtn').style.display = 'none';
+    document.getElementById('saveBtn').textContent = 'Create';
+
+    populateDropdowns();
+    document.getElementById('fieldStage').value = 'my_action';
+    document.getElementById('fieldType').value = 'probate';
+
+    document.getElementById('modalOverlay').classList.add('active');
+    document.getElementById('fieldClient').focus();
+  }
+
+  // ── Modal: Edit Case ──────────────────────────────────────
+  function openEditModal(caseId) {
+    const c = cases.find(x => x.id === caseId);
+    if (!c) return;
+
+    editingCaseId = caseId;
+    document.getElementById('modalTitle').textContent = 'Edit Case';
+    document.getElementById('fieldClient').value = c.client_name;
+    document.getElementById('fieldNotes').value = c.notes || '';
+    document.getElementById('archiveBtn').style.display = 'inline-block';
+    document.getElementById('saveBtn').textContent = 'Save';
+
+    populateDropdowns();
+    document.getElementById('fieldType').value = c.matter_type;
+    document.getElementById('fieldStage').value = c.stage;
+
+    const created = new Date(c.created_at).toLocaleDateString();
+    const updated = new Date(c.updated_at).toLocaleDateString();
+    document.getElementById('metaInfo').textContent = `Created: ${created}  •  Updated: ${updated}`;
+
+    document.getElementById('modalOverlay').classList.add('active');
+  }
+
+  function populateDropdowns() {
+    const typeSelect = document.getElementById('fieldType');
+    typeSelect.innerHTML = '';
+    for (const t of CONFIG.MATTER_TYPES) {
+      const opt = document.createElement('option');
+      opt.value = t.value;
+      opt.textContent = t.label;
+      typeSelect.appendChild(opt);
+    }
+
+    const stageSelect = document.getElementById('fieldStage');
+    stageSelect.innerHTML = '';
+    for (const s of CONFIG.STAGES) {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.label;
+      stageSelect.appendChild(opt);
+    }
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('active');
+    editingCaseId = null;
+  }
+
+  function closeModalOutside(e) {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
+  }
+
+  // ── Save Case ─────────────────────────────────────────────
+  async function saveCase() {
+    const clientName = document.getElementById('fieldClient').value.trim();
+    if (!clientName) {
+      showStatus('Client name is required', 'failed');
+      return;
+    }
+
+    const payload = {
+      client_name: clientName,
+      matter_type: document.getElementById('fieldType').value,
+      stage: document.getElementById('fieldStage').value,
+      notes: document.getElementById('fieldNotes').value.trim()
+    };
+
+    if (editingCaseId) {
+      // Update existing
+      const { error } = await supabase
+        .from('cases')
+        .update(payload)
+        .eq('id', editingCaseId);
+
+      if (error) {
+        showStatus('Save failed: ' + error.message, 'failed');
+        return;
+      }
+      showStatus('Saved', 'saved');
+    } else {
+      // Insert new
+      payload.user_id = currentUser.id;
+      const { error } = await supabase
+        .from('cases')
+        .insert(payload);
+
+      if (error) {
+        showStatus('Create failed: ' + error.message, 'failed');
+        return;
+      }
+      showStatus('Case created', 'saved');
+    }
+
+    closeModal();
+    await loadCases();
+  }
+
+  // ── Archive Case ──────────────────────────────────────────
+  async function archiveCase() {
+    if (!editingCaseId) return;
+    if (!confirm('Archive this case? It will be removed from the board.')) return;
+
+    const { error } = await supabase
+      .from('cases')
+      .update({ archived: true })
+      .eq('id', editingCaseId);
+
+    if (error) {
+      showStatus('Archive failed: ' + error.message, 'failed');
+      return;
+    }
+
+    showStatus('Case archived', 'saved');
+    closeModal();
+    await loadCases();
+  }
+
+  // ── Archive View ──────────────────────────────────────────
+  async function toggleArchive() {
+    showingArchive = !showingArchive;
+    const section = document.getElementById('archiveSection');
+    const board = document.getElementById('board');
+    const btn = document.getElementById('archiveToggle');
+
+    if (showingArchive) {
+      board.style.display = 'none';
+      section.classList.add('active');
+      btn.textContent = 'View Board';
+      await loadArchived();
+    } else {
+      board.style.display = 'flex';
+      section.classList.remove('active');
+      btn.textContent = 'View Archived';
+    }
+  }
+
+  async function loadArchived() {
+    const { data, error } = await supabase
+      .from('cases')
+      .select('*')
+      .eq('archived', true)
+      .order('updated_at', { ascending: false });
+
+    const tbody = document.getElementById('archiveBody');
+    tbody.innerHTML = '';
+
+    if (error || !data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="color:#9ca3af;">No archived cases.</td></tr>';
+      return;
+    }
+
+    for (const c of data) {
+      const typeLabel = CONFIG.MATTER_TYPES.find(t => t.value === c.matter_type)?.label || c.matter_type;
+      const date = new Date(c.updated_at).toLocaleDateString();
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${escapeHtml(c.client_name)}</td>
+        <td>${escapeHtml(typeLabel)}</td>
+        <td>${date}</td>
+        <td><button class="btn btn-secondary btn-small" onclick="unarchiveCase('${c.id}')">Restore</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function unarchiveCase(caseId) {
+    const { error } = await supabase
+      .from('cases')
+      .update({ archived: false, stage: 'my_action' })
+      .eq('id', caseId);
+
+    if (error) {
+      showStatus('Restore failed: ' + error.message, 'failed');
+      return;
+    }
+    showStatus('Case restored to My Action Needed', 'saved');
+    await loadArchived();
+    cases = []; // Force reload when switching back
+  }
+
+  // ── Status Banner ─────────────────────────────────────────
+  let statusTimeout;
+  function showStatus(message, type) {
+    const banner = document.getElementById('statusBanner');
+    banner.textContent = message;
+    banner.className = 'status-banner show ' + type;
+    clearTimeout(statusTimeout);
+    statusTimeout = setTimeout(() => banner.classList.remove('show'), 2500);
+  }
+
+  // ── Utility ───────────────────────────────────────────────
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // ── Keyboard shortcut: Escape closes modal ────────────────
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // ── Boot ──────────────────────────────────────────────────
+  checkAuth();
+</script>
+</body>
+</html>
