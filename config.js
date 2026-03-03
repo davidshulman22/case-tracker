@@ -14,9 +14,13 @@ const CONFIG = {
   // Number of days before a "Waiting on Client" card auto-moves to "Follow Up Needed"
   FOLLOW_UP_DAYS: 14,
 
+  // Number of days before an "In Progress" card auto-moves to "Follow Up Needed"
+  IN_PROGRESS_DAYS: 30,
+
   // The stages (don't change these unless you also update the SQL)
   STAGES: [
     { id: 'my_action', label: 'My Action Needed' },
+    { id: 'in_progress', label: 'In Progress' },
     { id: 'waiting_on_client', label: 'Waiting on Client' },
     { id: 'follow_up_needed', label: 'Follow Up Needed' }
   ],
