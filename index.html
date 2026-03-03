@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -343,7 +344,7 @@
 
 <script>
   // ── Initialize Supabase ──────────────────────────────────
-  const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 
   // ── App State ────────────────────────────────────────────
   let cases = [];
@@ -353,7 +354,7 @@
 
   // ── Auth ──────────────────────────────────────────────────
   async function signIn() {
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await sb.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin + window.location.pathname }
     });
@@ -361,12 +362,12 @@
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    await sb.auth.signOut();
     window.location.reload();
   }
 
   async function checkAuth() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await sb.auth.getSession();
     if (session) {
       currentUser = session.user;
       document.getElementById('loginScreen').style.display = 'none';
@@ -376,7 +377,7 @@
   }
 
   // Listen for auth state changes (handles OAuth redirect)
-  supabase.auth.onAuthStateChange((event, session) => {
+  sb.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_IN' && session) {
       currentUser = session.user;
       document.getElementById('loginScreen').style.display = 'none';
@@ -387,7 +388,7 @@
 
   // ── Data Loading ──────────────────────────────────────────
   async function loadCases() {
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('cases')
       .select('*')
       .eq('archived', false)
@@ -412,7 +413,7 @@
 
     for (const c of cases) {
       if (c.stage === 'waiting_on_client' && new Date(c.stage_changed_at) < cutoff) {
-        const { error } = await supabase
+        const { error } = await sb
           .from('cases')
           .update({ stage: 'follow_up_needed' })
           .eq('id', c.id);
@@ -510,7 +511,7 @@
     c.stage_changed_at = new Date().toISOString();
     renderBoard();
 
-    const { error } = await supabase
+    const { error } = await sb
       .from('cases')
       .update({ stage: newStage })
       .eq('id', caseId);
@@ -611,7 +612,7 @@
 
     if (editingCaseId) {
       // Update existing
-      const { error } = await supabase
+      const { error } = await sb
         .from('cases')
         .update(payload)
         .eq('id', editingCaseId);
@@ -624,7 +625,7 @@
     } else {
       // Insert new
       payload.user_id = currentUser.id;
-      const { error } = await supabase
+      const { error } = await sb
         .from('cases')
         .insert(payload);
 
@@ -644,7 +645,7 @@
     if (!editingCaseId) return;
     if (!confirm('Archive this case? It will be removed from the board.')) return;
 
-    const { error } = await supabase
+    const { error } = await sb
       .from('cases')
       .update({ archived: true })
       .eq('id', editingCaseId);
@@ -679,7 +680,7 @@
   }
 
   async function loadArchived() {
-    const { data, error } = await supabase
+    const { data, error } = await sb
       .from('cases')
       .select('*')
       .eq('archived', true)
@@ -708,7 +709,7 @@
   }
 
   async function unarchiveCase(caseId) {
-    const { error } = await supabase
+    const { error } = await sb
       .from('cases')
       .update({ archived: false, stage: 'my_action' })
       .eq('id', caseId);
